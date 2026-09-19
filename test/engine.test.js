@@ -101,6 +101,64 @@ test('左边界：夹取于 0、前驱安全线与最短时长', () => {
   assert.deepEqual(E.validate(cues), []);
 });
 
+test('整块平移：时长不变，向左夹取于 0 与前驱安全线', () => {
+  const cues = [cue(0, 600), cue(1000, 3000)];
+  E.applyMove(cues, 1, 500);                     // 越过前驱安全线 700
+  assert.deepEqual([cues[1].start, cues[1].end], [700, 2700]);  // 时长 2000 不变
+  E.applyMove(cues, 0, -800);                    // 首块夹取到 0
+  assert.deepEqual([cues[0].start, cues[0].end], [0, 600]);
+  E.applyMove(cues, 1, 1200);                    // 正常平移
+  assert.deepEqual([cues[1].start, cues[1].end], [1200, 3200]);
+  assert.deepEqual(E.validate(cues), []);
+});
+
+test('整块平移：向右越过后继安全线递归推移并保持各块时长', () => {
+  const cues = [cue(0, 600), cue(700, 1300), cue(1400, 2000), cue(5000, 5800)];
+  E.applyMove(cues, 0, 1000);
+  assert.deepEqual(cues.map(c => [c.start, c.end]), [
+    [1000, 1600], // 时长 600 不变
+    [1700, 2300], // 被推移，时长 600 不变
+    [2400, 3000], // 连锁推移
+    [5000, 5800], // 空隙足够，不受影响
+  ]);
+  assert.deepEqual(E.validate(cues), []);
+});
+
+test('整块平移：空隙足够时不影响后继', () => {
+  const cues = [cue(0, 600), cue(2000, 2600)];
+  E.applyMove(cues, 0, 800);
+  assert.deepEqual(cues.map(c => [c.start, c.end]), [[800, 1400], [2000, 2600]]);
+});
+
+test('整块平移：一次手势内先右推再左回拖，后继不自动回拉', () => {
+  const cues = [cue(0, 600), cue(700, 1300), cue(1400, 2000)];
+  E.applyMove(cues, 0, 1000); // 先向右推开后继
+  E.applyMove(cues, 0, 200);  // 再向左回拖
+  assert.deepEqual(cues.map(c => [c.start, c.end]), [
+    [200, 800],
+    [1700, 2300], // 后继保持被推开后的位置
+    [2400, 3000],
+  ]);
+  assert.deepEqual(E.validate(cues), []);
+});
+
+test('整块平移：中间块向右推动两侧后继，向左仍受前驱约束', () => {
+  const cues = [cue(0, 600), cue(1000, 1600), cue(1700, 2300)];
+  E.applyMove(cues, 1, 1500); // 越过 cue2 安全线
+  assert.deepEqual(cues.map(c => [c.start, c.end]), [
+    [0, 600],
+    [1500, 2100],
+    [2200, 2800], // 被推移，时长 600 不变
+  ]);
+  E.applyMove(cues, 1, 100);  // 回拖，夹取于前驱安全线 700；后继不回拉
+  assert.deepEqual(cues.map(c => [c.start, c.end]), [
+    [0, 600],
+    [700, 1300],
+    [2200, 2800],
+  ]);
+  assert.deepEqual(E.validate(cues), []);
+});
+
 test('validate 能发现全部三类违规', () => {
   const problems = E.validate([cue(-1, 200), cue(250, 400)]);
   // 负起点 + 第一块时长不足 + 第二块时长不足 + 间隔不足

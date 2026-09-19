@@ -125,7 +125,11 @@ main {
   border-radius: 6px;
   overflow: hidden;
   user-select: none;
+  cursor: grab;
+  touch-action: none;
 }
+
+.block.moving { cursor: grabbing; }
 
 .block.selected {
   border-color: #f0a832;

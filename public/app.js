@@ -4,7 +4,7 @@
 
   const {
     MIN_DURATION_MS, MIN_GAP_MS,
-    msToTimecode, parseSrt, formatSrt, normalize, applyDrag, validate,
+    msToTimecode, parseSrt, formatSrt, normalize, applyDrag, applyMove, validate,
   } = SubEngine;
 
   const MIN_PPS = 10;    // 像素/秒，缩放范围
@@ -16,7 +16,7 @@
     pxPerSec: 120,
     undoStack: [],     // 每次拖动前的 [{start,end},...] 快照
     selected: -1,
-    drag: null,        // {index, edge, moved, snapshot}
+    drag: null,        // {index, edge: 'start'|'end'|'move', moved, grabOffset, el, snapshot}
     fileName: 'edited.srt',
   };
 
@@ -51,6 +51,7 @@
       const el = document.createElement('div');
       el.className = 'block';
       el.dataset.i = i;
+      el.title = '按住块主体横向拖动可整块平移（时长不变）';
       el.innerHTML =
         '<div class="handle handle-l" title="拖动调整起点"></div>' +
         '<div class="block-body"><div class="block-time"></div><div class="block-text"></div></div>' +
@@ -207,22 +208,32 @@
     const index = Number(blockEl.dataset.i);
     selectCue(index);
     const handle = e.target.closest('.handle');
-    if (!handle) return;
+    // 手柄拖动边界；按住块主体则整块平移（时长不变）
+    const edge = handle ? (handle.classList.contains('handle-l') ? 'start' : 'end') : 'move';
     e.preventDefault();
+    const rect = content.getBoundingClientRect();
+    const t = (e.clientX - rect.left) / state.pxPerSec * 1000;
     state.drag = {
       index,
-      edge: handle.classList.contains('handle-l') ? 'start' : 'end',
+      edge,
       moved: false,
+      grabOffset: edge === 'move' ? t - state.cues[index].start : 0, // 抓取点偏移，避免跳动
+      el: blockEl,
       snapshot: state.cues.map(c => ({ start: c.start, end: c.end })),
     };
-    handle.setPointerCapture(e.pointerId);
+    if (edge === 'move') blockEl.classList.add('moving');
+    blockEl.setPointerCapture(e.pointerId);
   });
 
   trackEl.addEventListener('pointermove', (e) => {
     if (!state.drag) return;
     const rect = content.getBoundingClientRect();
     const t = (e.clientX - rect.left) / state.pxPerSec * 1000;
-    applyDrag(state.cues, state.drag.index, state.drag.edge, t);
+    if (state.drag.edge === 'move') {
+      applyMove(state.cues, state.drag.index, t - state.drag.grabOffset);
+    } else {
+      applyDrag(state.cues, state.drag.index, state.drag.edge, t);
+    }
     state.drag.moved = true;
     // 拖到视口边缘时自动横向滚动
     const sr = scroller.getBoundingClientRect();
@@ -233,7 +244,9 @@
 
   function finishDrag() {
     if (!state.drag) return;
+    if (state.drag.el) state.drag.el.classList.remove('moving');
     if (state.drag.moved) {
+      // 一次手势（含中途的推移与回拖）只产生一条撤销记录
       state.undoStack.push(state.drag.snapshot);
       if (state.undoStack.length > UNDO_LIMIT) state.undoStack.shift();
       updateUndoButton();
@@ -354,7 +367,7 @@
   $('#btn-demo').addEventListener('click', () => {
     importText([
       '1', '00:00:00,000 --> 00:00:01,800', '欢迎来到字幕时间轴修整器', '',
-      '2', '00:00:02,000 --> 00:00:04,200', '拖动任意字幕块的左右边界即可调整时间', '',
+      '2', '00:00:02,000 --> 00:00:04,200', '拖动左右边界调整起止，按住块主体可整块平移', '',
       '3', '00:00:04,500 --> 00:00:06,000', '右边界越过安全线时会递归推移后继块', '',
       '4', '00:00:06,200 --> 00:00:08,500', '向回拖动只释放空隙，不会拉回后继', '',
       '5', '00:00:08,800 --> 00:00:11,000', '每块至少 500ms，块间至少 100ms，起点不为负', '',
