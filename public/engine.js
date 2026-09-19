@@ -7,9 +7,11 @@
  *   3. 起点 >= 0
  *
  * 拖动规则：
+ *   - 按住块主体横向拖动为整块平移：时长不变；向左在 0 / 前驱安全线处
+ *     夹取，向右越过后继安全线时递归推移后继块；
  *   - 拖动右边界越过“后继安全线”（next.start - MIN_GAP）时，
  *     超出量递归推移所有受影响的后继块，且保持各块时长不变；
- *   - 向回拖动只释放空隙，不自动拉回后继块；
+ *   - 向回拖动只释放空隙，不自动拉回后继块（同一次手势内先推后回拖亦然）；
  *   - 拖动左边界时不推移前驱块，仅在 0 / 前驱安全线 / 最短时长处夹取。
  */
 (function (root, factory) {
@@ -88,30 +90,48 @@
   }
 
   /**
-   * 应用一次边界拖动（拖动过程中可反复调用）。
+   * 把 index 之后违反安全线的后继块整体后移（保持各块时长），
+   * 连锁推移直到空隙足够为止。只推不拉。
+   */
+  function pushSuccessors(cues, index) {
+    let prev = cues[index];
+    for (let k = index + 1; k < cues.length; k++) {
+      const cur = cues[k];
+      const minStart = prev.end + MIN_GAP_MS;
+      if (cur.start >= minStart) break; // 空隙足够，连锁停止
+      cur.end += minStart - cur.start;  // 整体平移，时长不变
+      cur.start = minStart;
+      prev = cur;
+    }
+  }
+
+  /**
+   * 应用一次拖动（拖动过程中可反复调用）。
    * @param cues  字幕数组（就地修改）
    * @param index 被拖动的块下标
-   * @param edge  'start' | 'end'
-   * @param t     期望的边界时间（ms）
+   * @param edge  'start' | 'end' | 'move'
+   *              （'move' 为按住块主体的整块平移，此时 t 为期望的新起始点）
+   * @param t     期望的边界时间（ms）；edge 为 'move' 时是期望的新起点
    */
   function applyDrag(cues, index, edge, t) {
     const cue = cues[index];
     if (!cue) return cues;
     t = Math.round(t);
 
-    if (edge === 'end') {
+    if (edge === 'move') {
+      // 整块平移：时长不变；向左在 0 / 前驱安全线处夹取
+      const dur = cue.end - cue.start;
+      let s = Math.max(t, 0);                            // 起点不为负
+      if (index > 0) {
+        s = Math.max(s, cues[index - 1].end + MIN_GAP_MS); // 前驱安全线
+      }
+      cue.start = s;
+      cue.end = s + dur;
+      pushSuccessors(cues, index); // 向右越过后继安全线时递归推移
+    } else if (edge === 'end') {
       // 最短时长夹取；向回拖动只释放空隙
       cue.end = Math.max(t, cue.start + MIN_DURATION_MS);
-      // 越过后继安全线：超出量递归推移后继块，保持各块时长
-      let prev = cue;
-      for (let k = index + 1; k < cues.length; k++) {
-        const cur = cues[k];
-        const minStart = prev.end + MIN_GAP_MS;
-        if (cur.start >= minStart) break; // 空隙足够，连锁停止
-        cur.end += minStart - cur.start;  // 整体平移，时长不变
-        cur.start = minStart;
-        prev = cur;
-      }
+      pushSuccessors(cues, index);
     } else if (edge === 'start') {
       let s = Math.min(t, cue.end - MIN_DURATION_MS); // 最短时长
       if (s < 0) s = 0;                                // 起点不为负

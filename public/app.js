@@ -16,7 +16,7 @@
     pxPerSec: 120,
     undoStack: [],     // 每次拖动前的 [{start,end},...] 快照
     selected: -1,
-    drag: null,        // {index, edge, moved, snapshot}
+    drag: null,        // {index, edge, moved, snapshot, grabOffset?}
     fileName: 'edited.srt',
   };
 
@@ -53,7 +53,7 @@
       el.dataset.i = i;
       el.innerHTML =
         '<div class="handle handle-l" title="拖动调整起点"></div>' +
-        '<div class="block-body"><div class="block-time"></div><div class="block-text"></div></div>' +
+        '<div class="block-body" title="按住拖动：整块平移（时长不变）"><div class="block-time"></div><div class="block-text"></div></div>' +
         '<div class="handle handle-r" title="拖动调整终点"></div>';
       trackEl.appendChild(el);
       blockEls.push(el);
@@ -207,21 +207,29 @@
     const index = Number(blockEl.dataset.i);
     selectCue(index);
     const handle = e.target.closest('.handle');
-    if (!handle) return;
+    // 手柄拖动调整边界；按住块主体则为整块平移（时长不变）
+    const edge = handle ? (handle.classList.contains('handle-l') ? 'start' : 'end') : 'move';
     e.preventDefault();
     state.drag = {
       index,
-      edge: handle.classList.contains('handle-l') ? 'start' : 'end',
+      edge,
       moved: false,
       snapshot: state.cues.map(c => ({ start: c.start, end: c.end })),
     };
-    handle.setPointerCapture(e.pointerId);
+    if (edge === 'move') {
+      // 记住指针相对块起点的偏移，拖动时“抓住点”不跳变
+      const rect = content.getBoundingClientRect();
+      state.drag.grabOffset =
+        (e.clientX - rect.left) / state.pxPerSec * 1000 - state.cues[index].start;
+    }
+    (handle || blockEl).setPointerCapture(e.pointerId);
   });
 
   trackEl.addEventListener('pointermove', (e) => {
     if (!state.drag) return;
     const rect = content.getBoundingClientRect();
-    const t = (e.clientX - rect.left) / state.pxPerSec * 1000;
+    let t = (e.clientX - rect.left) / state.pxPerSec * 1000;
+    if (state.drag.edge === 'move') t -= state.drag.grabOffset; // 换算成期望的新起点
     applyDrag(state.cues, state.drag.index, state.drag.edge, t);
     state.drag.moved = true;
     // 拖到视口边缘时自动横向滚动
@@ -354,8 +362,8 @@
   $('#btn-demo').addEventListener('click', () => {
     importText([
       '1', '00:00:00,000 --> 00:00:01,800', '欢迎来到字幕时间轴修整器', '',
-      '2', '00:00:02,000 --> 00:00:04,200', '拖动任意字幕块的左右边界即可调整时间', '',
-      '3', '00:00:04,500 --> 00:00:06,000', '右边界越过安全线时会递归推移后继块', '',
+      '2', '00:00:02,000 --> 00:00:04,200', '拖动左右边界调整起止，按住块主体可整体平移', '',
+      '3', '00:00:04,500 --> 00:00:06,000', '右移越过安全线时会递归推移后继块', '',
       '4', '00:00:06,200 --> 00:00:08,500', '向回拖动只释放空隙，不会拉回后继', '',
       '5', '00:00:08,800 --> 00:00:11,000', '每块至少 500ms，块间至少 100ms，起点不为负', '',
       '6', '00:00:11,300 --> 00:00:13,600', 'Ctrl+滚轮缩放时间轴，Ctrl+Z 撤销拖动', '',

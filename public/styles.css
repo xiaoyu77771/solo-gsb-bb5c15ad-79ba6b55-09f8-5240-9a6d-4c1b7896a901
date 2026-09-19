@@ -146,8 +146,11 @@ main {
   flex: 1;
   min-width: 0;
   padding: 5px 4px;
-  pointer-events: none;
+  cursor: grab;
+  touch-action: none;
 }
+
+.block-body:active { cursor: grabbing; }
 
 .block-time {
   font-size: 10px;

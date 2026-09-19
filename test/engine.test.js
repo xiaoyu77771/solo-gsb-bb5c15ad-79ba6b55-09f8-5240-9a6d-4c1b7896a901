@@ -101,6 +101,61 @@ test('左边界：夹取于 0、前驱安全线与最短时长', () => {
   assert.deepEqual(E.validate(cues), []);
 });
 
+test('整块平移：空隙内自由移动，时长与邻块均不变', () => {
+  const cues = [cue(0, 600), cue(700, 1300), cue(5000, 5600)];
+  E.applyDrag(cues, 1, 'move', 2000);
+  assert.deepEqual(cues.map(c => [c.start, c.end]), [
+    [0, 600],
+    [2000, 2600], // 整体平移，时长 600 不变
+    [5000, 5600], // 后继空隙足够，不受影响
+  ]);
+  assert.deepEqual(E.validate(cues), []);
+});
+
+test('整块平移：向左夹取于 0 与前驱安全线，时长不变', () => {
+  const cues = [cue(400, 1900), cue(3000, 4000)];
+  E.applyDrag(cues, 0, 'move', -300);  // 首块越过 0
+  assert.deepEqual([cues[0].start, cues[0].end], [0, 1500]); // 时长 1500 不变
+  E.applyDrag(cues, 1, 'move', 1000);  // 越过前驱安全线（1500 + 100）
+  assert.deepEqual([cues[1].start, cues[1].end], [1600, 2600]); // 夹取于安全线，时长 1000 不变
+  assert.deepEqual(E.validate(cues), []);
+});
+
+test('整块平移：向右越过后继安全线递归推移，连锁在空隙足够处停止', () => {
+  const cues = [cue(0, 600), cue(700, 1300), cue(1400, 2000), cue(6000, 6600)];
+  E.applyDrag(cues, 0, 'move', 1200);
+  assert.deepEqual(cues.map(c => [c.start, c.end]), [
+    [1200, 1800], // 时长 600 不变
+    [1900, 2500], // 被整体推移，时长 600 不变
+    [2600, 3200], // 连锁推移
+    [6000, 6600], // 空隙足够，连锁停止
+  ]);
+  assert.deepEqual(E.validate(cues), []);
+});
+
+test('整块平移：中间块右移推开后继，前驱不受影响', () => {
+  const cues = [cue(0, 600), cue(700, 1300), cue(1400, 2000)];
+  E.applyDrag(cues, 1, 'move', 1500);
+  assert.deepEqual(cues.map(c => [c.start, c.end]), [
+    [0, 600],     // 前驱不动
+    [1500, 2100], // 时长 600 不变
+    [2200, 2800], // 后继被整体推移
+  ]);
+  assert.deepEqual(E.validate(cues), []);
+});
+
+test('整块平移：同一次手势先向右推再向左回拖，后继不自动回拉', () => {
+  const cues = [cue(0, 600), cue(700, 1300), cue(1400, 2000)];
+  E.applyDrag(cues, 0, 'move', 1200); // 先向右推开后继
+  E.applyDrag(cues, 0, 'move', 300);  // 再向左回拖
+  assert.deepEqual(cues.map(c => [c.start, c.end]), [
+    [300, 900],
+    [1900, 2500], // 已被推开的后继保持不动
+    [2600, 3200],
+  ]);
+  assert.deepEqual(E.validate(cues), []);
+});
+
 test('validate 能发现全部三类违规', () => {
   const problems = E.validate([cue(-1, 200), cue(250, 400)]);
   // 负起点 + 第一块时长不足 + 第二块时长不足 + 间隔不足
